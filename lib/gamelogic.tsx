@@ -28,12 +28,14 @@ export const KEYS: { [key: string]: number } = {
 
 export function createNote(
   laneIndex: number,
-  lane: HTMLDivElement
+  lane: HTMLDivElement,
+  noteClassName: string
 ): Note | null {
   if (!lane) return null;
 
   const note = document.createElement("div");
-  note.classList.add("note");
+  // Use the scoped class name passed from the React component
+  note.className = noteClassName;
   note.setAttribute("data-lane", laneIndex.toString());
   lane.appendChild(note);
 
@@ -69,13 +71,16 @@ export function hitNote(
   notes: Note[],
   gameState: GameState,
   onScoreUpdate: (score: number) => void,
-  onComboUpdate: () => void
+  onComboUpdate: () => void,
+  noteHitClassName: string // New argument for the scoped hit class
 ): Note[] {
   for (let i = 0; i < notes.length; i++) {
     const note = notes[i];
 
     if (note.lane === laneIndex && note.y > 700 && note.y < 800) {
-      note.el.classList.add("hit");
+      // Use the scoped hit class name
+      note.el.classList.add(noteHitClassName);
+      
       gameState.score += 100;
       gameState.combo++;
 
