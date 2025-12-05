@@ -10,6 +10,8 @@ import {
   hitNote,
   formatTime,
   getComboText,
+  calculateNoteSpeed,
+  calculateSpawnInterval,
 } from "@/lib/gamelogic";
 
 import styles from './game.module.css';
@@ -26,13 +28,11 @@ export default function GamePage() {
   const [timeLeft, setTimeLeft] = useState(60);
 
   const restartGame = () => {
-    // Reset state variables
     setGameOver(false);
     setFinalScore(0);
     setHighestCombo(0);
     setTimeLeft(60);
 
-    // Manually reset the display text content in the DOM via refs
     if (scoreRef.current) {
       scoreRef.current.textContent = "0";
     }
@@ -56,6 +56,16 @@ export default function GamePage() {
       secondsLeft: 60,
     };
 
+    // Track which keys are currently pressed
+    const keysPressed = new Set<string>();
+    
+    // Track the current color mode (red or blue)
+    let currentMode: 'red' | 'blue' | null = null;
+    
+    // Track difficulty progression
+    let currentSpeed = 4;
+    let spawnIntervalId: NodeJS.Timeout | null = null;
+
     function updateComboDisplay() {
       if (!comboRef.current) return;
       comboRef.current.textContent = getComboText(gameState.combo);
@@ -72,29 +82,51 @@ export default function GamePage() {
       }
     }
 
-    // Initialize displays immediately when the game starts/restarts
     updateScoreDisplay(gameState.score);
     updateComboDisplay();
     updateTimerDisplay();
 
     function spawnNote() {
       const laneIndex = Math.floor(Math.random() * 4);
+      const isBlue = Math.random() < 0.5;
       const lane = lanes[laneIndex];
       if (!lane) return;
 
-      const note = createNote(laneIndex, lane, styles.note); 
+      const note = createNote(laneIndex, lane, styles.note, isBlue); 
       if (note) {
         notes.push(note);
       }
     }
 
     function update() {
-      notes = updateNotes(notes, gameState, updateComboDisplay);
+      const secondsElapsed = 60 - gameState.secondsLeft;
+      currentSpeed = calculateNoteSpeed(secondsElapsed);
+      notes = updateNotes(notes, gameState, updateComboDisplay, currentSpeed);
     }
 
-    function hit(laneIndex: number) {
+    function updateSpawnRate() {
+      const secondsElapsed = 60 - gameState.secondsLeft;
+      const newInterval = calculateSpawnInterval(secondsElapsed);
+      
+      // Clear old interval and set new one with updated rate
+      if (spawnIntervalId) {
+        clearInterval(spawnIntervalId);
+      }
+      spawnIntervalId = setInterval(spawnNote, newInterval);
+    }
+
+    function checkHit(directionKey: string) {
+      const laneIndex = KEYS[directionKey];
+      if (laneIndex === undefined) return;
+
+      // Only check hit if we're in a valid mode
+      if (currentMode === null) return;
+
+      const isBluePressed = currentMode === 'blue';
+
       notes = hitNote(
         laneIndex,
+        isBluePressed,
         notes,
         gameState,
         updateScoreDisplay,
@@ -104,13 +136,46 @@ export default function GamePage() {
     }
 
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (KEYS[e.key] !== undefined) hit(KEYS[e.key]);
+      // Prevent repeating key events
+      if (e.repeat) return;
+
+      const key = e.key.toLowerCase();
+      keysPressed.add(key);
+
+      // Check if X or C is pressed to set the mode
+      if (key === 'x') {
+        currentMode = 'red';
+      } else if (key === 'c') {
+        currentMode = 'blue';
+      }
+
+      // If a direction key is pressed, check for hit
+      if (KEYS[e.key] !== undefined) {
+        checkHit(e.key);
+      }
+    };
+
+    const handleKeyUp = (e: KeyboardEvent) => {
+      const key = e.key.toLowerCase();
+      keysPressed.delete(key);
+
+      // Reset mode when X or C is released
+      if (key === 'x' && currentMode === 'red') {
+        currentMode = null;
+      } else if (key === 'c' && currentMode === 'blue') {
+        currentMode = null;
+      }
     };
 
     document.addEventListener("keydown", handleKeyDown);
+    document.addEventListener("keyup", handleKeyUp);
 
-    const spawnInterval = setInterval(spawnNote, 700);
+    // Initial spawn interval
+    spawnIntervalId = setInterval(spawnNote, 700);
     const updateInterval = setInterval(update, 16);
+
+    // Update spawn rate every 5 seconds
+    const spawnRateUpdateInterval = setInterval(updateSpawnRate, 5000);
 
     const timerInterval = setInterval(() => {
       gameState.secondsLeft--;
@@ -126,11 +191,12 @@ export default function GamePage() {
 
     return () => {
       document.removeEventListener("keydown", handleKeyDown);
-      clearInterval(spawnInterval);
+      document.removeEventListener("keyup", handleKeyUp);
+      if (spawnIntervalId) clearInterval(spawnIntervalId);
       clearInterval(updateInterval);
+      clearInterval(spawnRateUpdateInterval);
       clearInterval(timerInterval);
       
-      // Clean up all notes when unmounting
       notes.forEach(note => {
         if (note.el && note.el.parentNode) {
           note.el.remove();

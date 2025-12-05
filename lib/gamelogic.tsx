@@ -2,6 +2,7 @@ export interface Note {
   el: HTMLDivElement;
   y: number;
   lane: number;
+  isBlue: boolean; // Track if note is blue or red
 }
 
 export interface GameState {
@@ -11,6 +12,7 @@ export interface GameState {
   secondsLeft: number;
 }
 
+// Direction keys only (0-3 for the 4 directions)
 export const KEYS: { [key: string]: number } = {
   ArrowLeft: 0,
   ArrowDown: 1,
@@ -29,29 +31,31 @@ export const KEYS: { [key: string]: number } = {
 export function createNote(
   laneIndex: number,
   lane: HTMLDivElement,
-  noteClassName: string
+  noteClassName: string,
+  isBlue: boolean
 ): Note | null {
   if (!lane) return null;
 
   const note = document.createElement("div");
-  // Use the scoped class name passed from the React component
   note.className = noteClassName;
   note.setAttribute("data-lane", laneIndex.toString());
+  note.setAttribute("data-color", isBlue ? "blue" : "red");
   lane.appendChild(note);
 
-  return { el: note, y: -50, lane: laneIndex };
+  return { el: note, y: -50, lane: laneIndex, isBlue };
 }
 
 export function updateNotes(
   notes: Note[],
   gameState: GameState,
-  onComboBreak: () => void
+  onComboBreak: () => void,
+  speed: number
 ): Note[] {
   const updatedNotes: Note[] = [];
 
   for (let i = 0; i < notes.length; i++) {
     const note = notes[i];
-    note.y += 4;
+    note.y += speed;
     note.el.style.top = `${note.y}px`;
 
     if (note.y > 850) {
@@ -66,19 +70,40 @@ export function updateNotes(
   return updatedNotes;
 }
 
+// Calculate note speed based on elapsed time
+export function calculateNoteSpeed(secondsElapsed: number): number {
+  const baseSpeed = 4;
+  const maxSpeed = 8;
+  const speedIncreaseRate = 0.08; // Speed increases by 0.08 per second
+  
+  const calculatedSpeed = baseSpeed + (secondsElapsed * speedIncreaseRate);
+  return Math.min(calculatedSpeed, maxSpeed);
+}
+
+// Calculate spawn interval based on elapsed time
+export function calculateSpawnInterval(secondsElapsed: number): number {
+  const baseInterval = 700; // Start at 700ms
+  const minInterval = 350; // Fastest spawn rate (350ms)
+  const decreaseRate = 7; // Decrease by 7ms per second
+  
+  const calculatedInterval = baseInterval - (secondsElapsed * decreaseRate);
+  return Math.max(calculatedInterval, minInterval);
+}
+
 export function hitNote(
   laneIndex: number,
+  isBluePressed: boolean,
   notes: Note[],
   gameState: GameState,
   onScoreUpdate: (score: number) => void,
   onComboUpdate: () => void,
-  noteHitClassName: string // New argument for the scoped hit class
+  noteHitClassName: string
 ): Note[] {
   for (let i = 0; i < notes.length; i++) {
     const note = notes[i];
-
-    if (note.lane === laneIndex && note.y > 700 && note.y < 800) {
-      // Use the scoped hit class name
+    
+    // Check if the note matches both direction AND color modifier
+    if (note.lane === laneIndex && note.isBlue === isBluePressed && note.y > 700 && note.y < 800) {
       note.el.classList.add(noteHitClassName);
       
       gameState.score += 100;
