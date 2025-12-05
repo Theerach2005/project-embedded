@@ -1,44 +1,59 @@
 "use client";
 
 import React, { useState, useEffect } from "react";
+import { supabase } from "@/lib/supabaseClient"; 
 
 interface ScoreEntry {
-  name: string;
   score: number;
-  combo: number;
+  max_combo: number;
+  created_at: string; // Used for tie-breaking
 }
 
 export default function LeaderboardPage() {
   const [scores, setScores] = useState<ScoreEntry[]>([]);
   const [isLoaded, setIsLoaded] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
-  // Load from localStorage (runs only on the client)
   useEffect(() => {
-    // We add a check for the window object to ensure this only runs in the browser environment
-    if (typeof window !== 'undefined') {
-      const saved = localStorage.getItem("leaderboard");
-      if (saved) {
-        // Parse data and sort immediately
-        const parsedScores: ScoreEntry[] = JSON.parse(saved);
-        setScores(parsedScores.sort((a, b) => b.score - a.score));
+    async function fetchScores() {
+      setIsLoaded(false);
+      setError(null);
+
+      // Fetch the top 100 scores: order by score (desc), then created_at (asc for tie-breaker)
+      const { data, error } = await supabase
+        .from('scores')
+        .select('score, max_combo, created_at') // Selects only the available columns
+        .order('score', { ascending: false })
+        .order('created_at', { ascending: true }) // Tie-breaker: older score wins
+        .limit(100);
+
+      if (error) {
+        console.error("Error fetching scores:", error);
+        setError("Failed to load leaderboard data.");
       } else {
-        // Example test data if none exists
-        setScores([
-          { name: "Player1", score: 15000, combo: 32 },
-          { name: "Shadow", score: 9000, combo: 20 },
-          { name: "NullByte", score: 4000, combo: 10 },
-        ].sort((a, b) => b.score - a.score));
+        setScores(data as ScoreEntry[]);
       }
       setIsLoaded(true);
     }
+
+    fetchScores();
   }, []);
+
+  const getPlayerName = (index: number): string => {
+    switch (index) {
+      case 0: return "🏆 First Place";
+      case 1: return "⭐ Second Place";
+      case 2: return "✨ Third Place";
+      default: return `Anon Player #${index + 1}`;
+    }
+  };
 
   return (
     <div className="min-h-screen bg-[#0f0f0f] text-white flex items-center justify-center p-4 sm:p-8 font-inter">
       <div className="w-full max-w-2xl bg-[#1a1a1a] rounded-2xl p-6 sm:p-8 shadow-2xl border border-white/10">
         
         <h1 className="text-3xl sm:text-4xl font-extrabold text-center mb-8 bg-clip-text text-transparent bg-gradient-to-r from-purple-400 to-pink-600">
-          🎵 Rhythm Game Leaderboard
+          🎵 Global Leaderboard
         </h1>
 
         <div className="overflow-x-auto rounded-xl shadow-lg border border-white/10">
@@ -46,14 +61,18 @@ export default function LeaderboardPage() {
             <thead className="bg-purple-600/30 text-lg border-b border-white/10">
               <tr>
                 <th className="p-3 w-16 sm:w-20 text-left pl-6">#</th>
-                <th className="p-3 text-left">Player Name</th>
+                <th className="p-3 text-left">Top Score</th>
                 <th className="p-3 w-28 sm:w-32 text-center">Score</th>
                 <th className="p-3 w-28 sm:w-32 text-center pr-6">Max Combo</th>
               </tr>
             </thead>
 
             <tbody>
-              {!isLoaded ? (
+              {error ? (
+                 <tr>
+                    <td colSpan={4} className="p-4 text-center text-red-400">Error: {error}</td>
+                 </tr>
+              ) : !isLoaded ? (
                 <tr>
                     <td colSpan={4} className="p-4 text-center text-white/50 animate-pulse">Loading Leaderboard Data...</td>
                 </tr>
@@ -71,7 +90,8 @@ export default function LeaderboardPage() {
                     </td>
 
                     <td className="p-3 text-left">
-                      <span className="truncate block max-w-[150px]">{entry.name}</span>
+                      {/* Uses the generated placeholder name */}
+                      <span className="truncate block max-w-[150px]">{getPlayerName(index)}</span>
                     </td>
 
                     <td className="p-3 text-center font-semibold text-pink-400">
@@ -79,10 +99,16 @@ export default function LeaderboardPage() {
                     </td>
 
                     <td className="p-3 text-center text-blue-300 font-semibold pr-6">
-                      x{entry.combo}
+                      x{entry.max_combo}
                     </td>
                   </tr>
                 ))
+              )}
+               {/* Show No Scores message if loaded and no scores */}
+              {isLoaded && scores.length === 0 && !error && (
+                <tr>
+                  <td colSpan={4} className="p-4 text-center text-white/50">No scores yet! Be the first to play.</td>
+                </tr>
               )}
             </tbody>
           </table>

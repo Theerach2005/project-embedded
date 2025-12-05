@@ -1,6 +1,7 @@
 "use client";
 import React, { useEffect, useRef, useState } from "react";
 import Link from "next/link";
+import { supabase } from "@/lib/supabaseClient"; 
 import {
   Note,
   GameState,
@@ -26,12 +27,16 @@ export default function GamePage() {
   const [finalScore, setFinalScore] = useState(0);
   const [highestCombo, setHighestCombo] = useState(0);
   const [timeLeft, setTimeLeft] = useState(60);
+  
+  // New state for score submission
+  const [scoreSubmitted, setScoreSubmitted] = useState(false);
 
   const restartGame = () => {
     setGameOver(false);
     setFinalScore(0);
     setHighestCombo(0);
     setTimeLeft(60);
+    setScoreSubmitted(false); // Reset submission status
 
     if (scoreRef.current) {
       scoreRef.current.textContent = "0";
@@ -41,6 +46,30 @@ export default function GamePage() {
     }
     if (timerRef.current) {
       timerRef.current.textContent = formatTime(60);
+    }
+  };
+
+  const submitScore = async () => {
+    if (scoreSubmitted || finalScore === 0) return;
+
+    // Check if the score is worth submitting (e.g., must be greater than 0)
+    if (finalScore <= 0) {
+        alert("Score too low to submit.");
+        return;
+    }
+
+    const { error } = await supabase
+      .from('scores')
+      .insert({
+        score: finalScore,
+        max_combo: highestCombo,
+      });
+
+    if (error) {
+      console.error("Error submitting score:", error);
+      alert("Failed to submit score. Check the console for details.");
+    } else {
+      setScoreSubmitted(true);
     }
   };
 
@@ -56,13 +85,10 @@ export default function GamePage() {
       secondsLeft: 60,
     };
 
-    // Track which keys are currently pressed
     const keysPressed = new Set<string>();
     
-    // Track the current color mode (red or blue)
     let currentMode: 'red' | 'blue' | null = null;
     
-    // Track difficulty progression
     let currentSpeed = 4;
     let spawnIntervalId: NodeJS.Timeout | null = null;
 
@@ -108,7 +134,6 @@ export default function GamePage() {
       const secondsElapsed = 60 - gameState.secondsLeft;
       const newInterval = calculateSpawnInterval(secondsElapsed);
       
-      // Clear old interval and set new one with updated rate
       if (spawnIntervalId) {
         clearInterval(spawnIntervalId);
       }
@@ -119,7 +144,6 @@ export default function GamePage() {
       const laneIndex = KEYS[directionKey];
       if (laneIndex === undefined) return;
 
-      // Only check hit if we're in a valid mode
       if (currentMode === null) return;
 
       const isBluePressed = currentMode === 'blue';
@@ -136,13 +160,11 @@ export default function GamePage() {
     }
 
     const handleKeyDown = (e: KeyboardEvent) => {
-      // Prevent repeating key events
       if (e.repeat) return;
 
       const key = e.key.toLowerCase();
       keysPressed.add(key);
 
-      // Check if X or C is pressed to set the mode
       if (key === 'x') {
         currentMode = 'red';
       } else if (key === 'c') {
@@ -159,7 +181,6 @@ export default function GamePage() {
       const key = e.key.toLowerCase();
       keysPressed.delete(key);
 
-      // Reset mode when X or C is released
       if (key === 'x' && currentMode === 'red') {
         currentMode = null;
       } else if (key === 'c' && currentMode === 'blue') {
@@ -205,6 +226,7 @@ export default function GamePage() {
     };
   }, [gameOver]);
 
+
   return (
     <>
       <div className={styles.body}>
@@ -247,6 +269,23 @@ export default function GamePage() {
                   </span>
                 </p>
 
+                {/* --- Score Submission Section (Simplified) --- */}
+                <div className="mb-8 p-4 bg-gray-800 rounded-lg">
+                    <h2 className="text-xl font-semibold mb-3 text-white">Submit Score to Leaderboard</h2>
+                    <button
+                        onClick={submitScore}
+                        disabled={scoreSubmitted || finalScore === 0}
+                        className={`w-full px-6 py-3 rounded-xl text-xl font-semibold transition-all text-white 
+                            ${scoreSubmitted || finalScore === 0
+                                ? 'bg-gray-500 cursor-not-allowed' 
+                                : 'bg-indigo-600 hover:bg-indigo-700'}`
+                        }
+                    >
+                        {scoreSubmitted ? "Score Submitted!" : "Submit Score"}
+                    </button>
+                </div>
+                {/* ------------------------------------------- */}
+
                 <div className="flex gap-4 justify-center">
                   <button
                     onClick={restartGame}
@@ -256,10 +295,10 @@ export default function GamePage() {
                   </button>
 
                   <Link
-                    href="/"
+                    href="/leaderboard"
                     className="px-8 py-4 bg-green-600 hover:bg-green-700 rounded-xl text-xl font-semibold transition-all text-white inline-block"
                   >
-                    Main Menu
+                    View Leaderboard
                   </Link>
                 </div>
               </div>
