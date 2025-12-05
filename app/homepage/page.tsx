@@ -2,22 +2,31 @@ import Link from "next/link";
 
 export default function HomePage() {
   return (
-    <main className="min-h-screen flex flex-col items-center justify-center gap-6 p-8 bg-gray-900 text-white">
-      <h1 className="text-4xl font-bold mb-6">Welcome to the Game</h1>
+    <main className="min-h-screen bg-[#0f0f0f] text-white flex items-center justify-center p-8 font-inter">
+      <div className="w-full max-w-xl bg-[#1a1a1a] rounded-2xl p-8 shadow-2xl border border-white/10 text-center">
 
-      <Link
-        href="/game"
-        className="px-6 py-3 bg-blue-600 hover:bg-blue-700 rounded-xl text-lg font-semibold transition-all"
-      >
-        Play Game
-      </Link>
+        <h1 className="text-4xl font-extrabold mb-8 bg-clip-text text-transparent bg-gradient-to-r from-purple-400 to-pink-600">
+          🎮 Rhythm Game
+        </h1>
 
-      <Link
-        href="/leaderboard"
-        className="px-6 py-3 bg-green-600 hover:bg-green-700 rounded-xl text-lg font-semibold transition-all"
-      >
-        View Leaderboard
-      </Link>
+        <div className="flex flex-col gap-6 mt-4">
+
+          <Link
+            href="/game"
+            className="inline-flex justify-center items-center px-6 py-3 bg-purple-600 hover:bg-purple-700 rounded-full text-white font-bold shadow-lg transition duration-300 transform hover:scale-[1.03]"
+          >
+            Play Game
+          </Link>
+
+          <Link
+            href="/leaderboard"
+            className="inline-flex justify-center items-center px-6 py-3 bg-pink-600 hover:bg-pink-700 rounded-full text-white font-bold shadow-lg transition duration-300 transform hover:scale-[1.03]"
+          >
+            View Leaderboard
+          </Link>
+
+        </div>
+      </div>
     </main>
   );
 }
