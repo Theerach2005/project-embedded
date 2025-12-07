@@ -13,14 +13,14 @@ export default function HomePage() {
 
           <Link
             href="/game"
-            className="inline-flex justify-center items-center px-6 py-3 bg-purple-600 hover:bg-purple-700 rounded-full text-white font-bold shadow-lg transition duration-300 transform hover:scale-[1.03]"
+            className="inline-flex justify-center items-center px-6 py-3 bg-purple-600 hover:bg-purple-700 focus:bg-purple-700 focus:outline-none focus:ring-4 focus:ring-purple-500/50 rounded-full text-white font-bold shadow-lg transition duration-300 transform hover:scale-[1.03] focus:scale-[1.03]"
           >
             Play Game
           </Link>
 
           <Link
             href="/leaderboard"
-            className="inline-flex justify-center items-center px-6 py-3 bg-pink-600 hover:bg-pink-700 rounded-full text-white font-bold shadow-lg transition duration-300 transform hover:scale-[1.03]"
+            className="inline-flex justify-center items-center px-6 py-3 bg-pink-600 hover:bg-pink-700 focus:bg-pink-700 focus:outline-none focus:ring-4 focus:ring-pink-500/50 rounded-full text-white font-bold shadow-lg transition duration-300 transform hover:scale-[1.03] focus:scale-[1.03]"
           >
             View Leaderboard
           </Link>

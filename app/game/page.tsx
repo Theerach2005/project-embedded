@@ -30,13 +30,19 @@ export default function GamePage() {
   
   // New state for score submission
   const [scoreSubmitted, setScoreSubmitted] = useState(false);
+  
+  // State for tracking which mode is active (red/blue) and which lane
+  const [activeMode, setActiveMode] = useState<'red' | 'blue' | null>(null);
+  const [activeLanes, setActiveLanes] = useState<Set<number>>(new Set());
 
   const restartGame = () => {
     setGameOver(false);
     setFinalScore(0);
     setHighestCombo(0);
     setTimeLeft(60);
-    setScoreSubmitted(false); // Reset submission status
+    setScoreSubmitted(false);
+    setActiveMode(null);
+    setActiveLanes(new Set());
 
     if (scoreRef.current) {
       scoreRef.current.textContent = "0";
@@ -52,7 +58,6 @@ export default function GamePage() {
   const submitScore = async () => {
     if (scoreSubmitted || finalScore === 0) return;
 
-    // Check if the score is worth submitting (e.g., must be greater than 0)
     if (finalScore <= 0) {
         alert("Score too low to submit.");
         return;
@@ -86,6 +91,7 @@ export default function GamePage() {
     };
 
     const keysPressed = new Set<string>();
+    const directionKeysPressed = new Set<string>();
     
     let currentMode: 'red' | 'blue' | null = null;
     
@@ -106,6 +112,17 @@ export default function GamePage() {
       if (scoreRef.current) {
         scoreRef.current.textContent = score.toString();
       }
+    }
+
+    function updateActiveLanes() {
+      const newActiveLanes = new Set<number>();
+      directionKeysPressed.forEach(key => {
+        const laneIndex = KEYS[key];
+        if (laneIndex !== undefined) {
+          newActiveLanes.add(laneIndex);
+        }
+      });
+      setActiveLanes(newActiveLanes);
     }
 
     updateScoreDisplay(gameState.score);
@@ -167,12 +184,16 @@ export default function GamePage() {
 
       if (key === 'x') {
         currentMode = 'red';
+        setActiveMode('red');
       } else if (key === 'c') {
         currentMode = 'blue';
+        setActiveMode('blue');
       }
 
-      // If a direction key is pressed, check for hit
+      // If a direction key is pressed, add to active lanes and check for hit
       if (KEYS[e.key] !== undefined) {
+        directionKeysPressed.add(e.key);
+        updateActiveLanes();
         checkHit(e.key);
       }
     };
@@ -183,19 +204,24 @@ export default function GamePage() {
 
       if (key === 'x' && currentMode === 'red') {
         currentMode = null;
+        setActiveMode(null);
       } else if (key === 'c' && currentMode === 'blue') {
         currentMode = null;
+        setActiveMode(null);
+      }
+
+      // If a direction key is released, remove from active lanes
+      if (KEYS[e.key] !== undefined) {
+        directionKeysPressed.delete(e.key);
+        updateActiveLanes();
       }
     };
 
     document.addEventListener("keydown", handleKeyDown);
     document.addEventListener("keyup", handleKeyUp);
 
-    // Initial spawn interval
     spawnIntervalId = setInterval(spawnNote, 700);
     const updateInterval = setInterval(update, 16);
-
-    // Update spawn rate every 5 seconds
     const spawnRateUpdateInterval = setInterval(updateSpawnRate, 5000);
 
     const timerInterval = setInterval(() => {
@@ -245,7 +271,10 @@ export default function GamePage() {
           {[0, 1, 2, 3].map((i) => (
             <div
               key={i}
-              className={styles.lane}
+              className={`${styles.lane} ${
+                activeLanes.has(i) && activeMode === 'red' ? styles.laneRed : 
+                activeLanes.has(i) && activeMode === 'blue' ? styles.laneBlue : ''
+              }`}
               ref={(el) => {
                 laneRefs.current[i] = el;
               }}
@@ -269,7 +298,6 @@ export default function GamePage() {
                   </span>
                 </p>
 
-                {/* --- Score Submission Section (Simplified) --- */}
                 <div className="mb-8 p-4 bg-gray-800 rounded-lg">
                     <h2 className="text-xl font-semibold mb-3 text-white">Submit Score to Leaderboard</h2>
                     <button
@@ -284,7 +312,6 @@ export default function GamePage() {
                         {scoreSubmitted ? "Score Submitted!" : "Submit Score"}
                     </button>
                 </div>
-                {/* ------------------------------------------- */}
 
                 <div className="flex gap-4 justify-center">
                   <button

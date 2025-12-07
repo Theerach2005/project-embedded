@@ -25,6 +25,17 @@
   border-left: 1px solid #444;
   border-right: 1px solid #444;
   position: relative;
+  transition: background-color 0.1s ease;
+}
+
+/* Red mode hover effect */
+.laneRed {
+  background-color: rgba(255, 100, 100, 0.3);
+}
+
+/* Blue mode hover effect */
+.laneBlue {
+  background-color: rgba(100, 150, 255, 0.3);
 }
 
 .note {
