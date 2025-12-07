@@ -1,7 +1,7 @@
 "use client";
 import React, { useEffect, useRef, useState } from "react";
 import Link from "next/link";
-import { supabase } from "@/lib/supabaseClient"; 
+import { database, ref, push, set } from "@/lib/firebase";
 import {
   Note,
   GameState,
@@ -55,7 +55,9 @@ export default function GamePage() {
     }
   };
 
+  // --- START FIREBASE SCORE SUBMISSION LOGIC (Realtime Database) ---
   const submitScore = async () => {
+    // Prevent re-submission or submission of zero score
     if (scoreSubmitted || finalScore === 0) return;
 
     if (finalScore <= 0) {
@@ -63,20 +65,24 @@ export default function GamePage() {
         return;
     }
 
-    const { error } = await supabase
-      .from('scores')
-      .insert({
-        score: finalScore,
-        max_combo: highestCombo,
-      });
+    try {
+        const scoresRef = ref(database, "highscores");
+        const newScoreRef = push(scoresRef);
+        
+        await set(newScoreRef, {
+            score: finalScore,
+            highestCombo: highestCombo,
+            timestamp: new Date().toISOString(),
+        });
 
-    if (error) {
-      console.error("Error submitting score:", error);
+        setScoreSubmitted(true);
+
+    } catch (e) {
+      console.error("Error submitting score:", e);
       alert("Failed to submit score. Check the console for details.");
-    } else {
-      setScoreSubmitted(true);
     }
   };
+  // --- END FIREBASE SCORE SUBMISSION LOGIC ---
 
   useEffect(() => {
     if (gameOver) return;
