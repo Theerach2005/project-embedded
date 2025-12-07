@@ -1,344 +1,344 @@
-  "use client";
-  import React, { useEffect, useRef, useState } from "react";
-  import Link from "next/link";
-  import { db, collection, addDoc, serverTimestamp } from "@/lib/firebase";
-  import {
-    Note,
-    GameState,
-    KEYS,
-    createNote,
-    updateNotes,
-    hitNote,
-    formatTime,
-    getComboText,
-    calculateNoteSpeed,
-    calculateSpawnInterval,
-  } from "@/lib/gamelogic";
+"use client";
+import React, { useEffect, useRef, useState } from "react";
+import Link from "next/link";
+import { database, ref, push, set } from "@/lib/firebase";
+import {
+  Note,
+  GameState,
+  KEYS,
+  createNote,
+  updateNotes,
+  hitNote,
+  formatTime,
+  getComboText,
+  calculateNoteSpeed,
+  calculateSpawnInterval,
+} from "@/lib/gamelogic";
 
-  import styles from './game.module.css';
+import styles from './game.module.css';
 
-  export default function GamePage() {
-    const laneRefs = useRef<(HTMLDivElement | null)[]>([]);
-    const scoreRef = useRef<HTMLDivElement | null>(null);
-    const comboRef = useRef<HTMLDivElement | null>(null);
-    const timerRef = useRef<HTMLDivElement | null>(null);
+export default function GamePage() {
+  const laneRefs = useRef<(HTMLDivElement | null)[]>([]);
+  const scoreRef = useRef<HTMLDivElement | null>(null);
+  const comboRef = useRef<HTMLDivElement | null>(null);
+  const timerRef = useRef<HTMLDivElement | null>(null);
 
-    const [gameOver, setGameOver] = useState(false);
-    const [finalScore, setFinalScore] = useState(0);
-    const [highestCombo, setHighestCombo] = useState(0);
-    const [timeLeft, setTimeLeft] = useState(60);
-    
-    // New state for score submission
-    const [scoreSubmitted, setScoreSubmitted] = useState(false);
-    
-    // State for tracking which mode is active (red/blue) and which lane
-    const [activeMode, setActiveMode] = useState<'red' | 'blue' | null>(null);
-    const [activeLanes, setActiveLanes] = useState<Set<number>>(new Set());
+  const [gameOver, setGameOver] = useState(false);
+  const [finalScore, setFinalScore] = useState(0);
+  const [highestCombo, setHighestCombo] = useState(0);
+  const [timeLeft, setTimeLeft] = useState(60);
+  
+  // New state for score submission
+  const [scoreSubmitted, setScoreSubmitted] = useState(false);
+  
+  // State for tracking which mode is active (red/blue) and which lane
+  const [activeMode, setActiveMode] = useState<'red' | 'blue' | null>(null);
+  const [activeLanes, setActiveLanes] = useState<Set<number>>(new Set());
 
-    const restartGame = () => {
-      setGameOver(false);
-      setFinalScore(0);
-      setHighestCombo(0);
-      setTimeLeft(60);
-      setScoreSubmitted(false);
-      setActiveMode(null);
-      setActiveLanes(new Set());
+  const restartGame = () => {
+    setGameOver(false);
+    setFinalScore(0);
+    setHighestCombo(0);
+    setTimeLeft(60);
+    setScoreSubmitted(false);
+    setActiveMode(null);
+    setActiveLanes(new Set());
 
-      if (scoreRef.current) {
-        scoreRef.current.textContent = "0";
-      }
-      if (comboRef.current) {
-        comboRef.current.textContent = "";
-      }
-      if (timerRef.current) {
-        timerRef.current.textContent = formatTime(60);
-      }
-    };
+    if (scoreRef.current) {
+      scoreRef.current.textContent = "0";
+    }
+    if (comboRef.current) {
+      comboRef.current.textContent = "";
+    }
+    if (timerRef.current) {
+      timerRef.current.textContent = formatTime(60);
+    }
+  };
 
-    // --- START FIREBASE SCORE SUBMISSION LOGIC ---
-    const submitScore = async () => {
-      if (scoreSubmitted || finalScore === 0) return;
+  // --- START FIREBASE SCORE SUBMISSION LOGIC (Realtime Database) ---
+  const submitScore = async () => {
+    // Prevent re-submission or submission of zero score
+    if (scoreSubmitted || finalScore === 0) return;
 
-      if (finalScore <= 0) {
-          alert("Score too low to submit.");
-          return;
-      }
+    if (finalScore <= 0) {
+        alert("Score too low to submit.");
+        return;
+    }
 
-      try {
-          const scoresCollectionRef = collection(db, "highscores"); // Use your highscores collection name
-          
-          await addDoc(scoresCollectionRef, {
-              score: finalScore,
-              highestCombo: highestCombo,
-              timestamp: serverTimestamp(), // Use serverTimestamp for accuracy
-          });
-
-          setScoreSubmitted(true);
-
-      } catch (e) {
-        console.error("Error submitting score:", e);
-        alert("Failed to submit score. Check the console for details.");
-      }
-    };
-    // --- END FIREBASE SCORE SUBMISSION LOGIC ---
-
-    useEffect(() => {
-      if (gameOver) return;
-
-      // ... (Game initialization and logic remains the same)
-
-      const lanes = laneRefs.current;
-      let notes: Note[] = [];
-      const gameState: GameState = {
-        score: 0,
-        combo: 0,
-        maxCombo: 0,
-        secondsLeft: 60,
-      };
-
-      const keysPressed = new Set<string>();
-      const directionKeysPressed = new Set<string>();
-      
-      let currentMode: 'red' | 'blue' | null = null;
-      
-      let currentSpeed = 4;
-      let spawnIntervalId: NodeJS.Timeout | null = null;
-
-      function updateComboDisplay() {
-        if (!comboRef.current) return;
-        comboRef.current.textContent = getComboText(gameState.combo);
-      }
-
-      function updateTimerDisplay() {
-        if (!timerRef.current) return;
-        timerRef.current.textContent = formatTime(gameState.secondsLeft);
-      }
-
-      function updateScoreDisplay(score: number) {
-        if (scoreRef.current) {
-          scoreRef.current.textContent = score.toString();
-        }
-      }
-
-      function updateActiveLanes() {
-        const newActiveLanes = new Set<number>();
-        directionKeysPressed.forEach(key => {
-          const laneIndex = KEYS[key];
-          if (laneIndex !== undefined) {
-            newActiveLanes.add(laneIndex);
-          }
+    try {
+        const scoresRef = ref(database, "highscores");
+        const newScoreRef = push(scoresRef);
+        
+        await set(newScoreRef, {
+            score: finalScore,
+            highestCombo: highestCombo,
+            timestamp: new Date().toISOString(),
         });
-        setActiveLanes(newActiveLanes);
+
+        setScoreSubmitted(true);
+
+    } catch (e) {
+      console.error("Error submitting score:", e);
+      alert("Failed to submit score. Check the console for details.");
+    }
+  };
+  // --- END FIREBASE SCORE SUBMISSION LOGIC ---
+
+  useEffect(() => {
+    if (gameOver) return;
+
+    const lanes = laneRefs.current;
+    let notes: Note[] = [];
+    const gameState: GameState = {
+      score: 0,
+      combo: 0,
+      maxCombo: 0,
+      secondsLeft: 60,
+    };
+
+    const keysPressed = new Set<string>();
+    const directionKeysPressed = new Set<string>();
+    
+    let currentMode: 'red' | 'blue' | null = null;
+    
+    let currentSpeed = 4;
+    let spawnIntervalId: NodeJS.Timeout | null = null;
+
+    function updateComboDisplay() {
+      if (!comboRef.current) return;
+      comboRef.current.textContent = getComboText(gameState.combo);
+    }
+
+    function updateTimerDisplay() {
+      if (!timerRef.current) return;
+      timerRef.current.textContent = formatTime(gameState.secondsLeft);
+    }
+
+    function updateScoreDisplay(score: number) {
+      if (scoreRef.current) {
+        scoreRef.current.textContent = score.toString();
+      }
+    }
+
+    function updateActiveLanes() {
+      const newActiveLanes = new Set<number>();
+      directionKeysPressed.forEach(key => {
+        const laneIndex = KEYS[key];
+        if (laneIndex !== undefined) {
+          newActiveLanes.add(laneIndex);
+        }
+      });
+      setActiveLanes(newActiveLanes);
+    }
+
+    updateScoreDisplay(gameState.score);
+    updateComboDisplay();
+    updateTimerDisplay();
+
+    function spawnNote() {
+      const laneIndex = Math.floor(Math.random() * 4);
+      const isBlue = Math.random() < 0.5;
+      const lane = lanes[laneIndex];
+      if (!lane) return;
+
+      const note = createNote(laneIndex, lane, styles.note, isBlue); 
+      if (note) {
+        notes.push(note);
+      }
+    }
+
+    function update() {
+      const secondsElapsed = 60 - gameState.secondsLeft;
+      currentSpeed = calculateNoteSpeed(secondsElapsed);
+      notes = updateNotes(notes, gameState, updateComboDisplay, currentSpeed);
+    }
+
+    function updateSpawnRate() {
+      const secondsElapsed = 60 - gameState.secondsLeft;
+      const newInterval = calculateSpawnInterval(secondsElapsed);
+      
+      if (spawnIntervalId) {
+        clearInterval(spawnIntervalId);
+      }
+      spawnIntervalId = setInterval(spawnNote, newInterval);
+    }
+
+    function checkHit(directionKey: string) {
+      const laneIndex = KEYS[directionKey];
+      if (laneIndex === undefined) return;
+
+      if (currentMode === null) return;
+
+      const isBluePressed = currentMode === 'blue';
+
+      notes = hitNote(
+        laneIndex,
+        isBluePressed,
+        notes,
+        gameState,
+        updateScoreDisplay,
+        updateComboDisplay,
+        styles.noteHit
+      );
+    }
+
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.repeat) return;
+
+      const key = e.key.toLowerCase();
+      keysPressed.add(key);
+
+      if (key === 'x') {
+        currentMode = 'red';
+        setActiveMode('red');
+      } else if (key === 'c') {
+        currentMode = 'blue';
+        setActiveMode('blue');
       }
 
-      updateScoreDisplay(gameState.score);
-      updateComboDisplay();
+      // If a direction key is pressed, add to active lanes and check for hit
+      if (KEYS[e.key] !== undefined) {
+        directionKeysPressed.add(e.key);
+        updateActiveLanes();
+        checkHit(e.key);
+      }
+    };
+
+    const handleKeyUp = (e: KeyboardEvent) => {
+      const key = e.key.toLowerCase();
+      keysPressed.delete(key);
+
+      if (key === 'x' && currentMode === 'red') {
+        currentMode = null;
+        setActiveMode(null);
+      } else if (key === 'c' && currentMode === 'blue') {
+        currentMode = null;
+        setActiveMode(null);
+      }
+
+      // If a direction key is released, remove from active lanes
+      if (KEYS[e.key] !== undefined) {
+        directionKeysPressed.delete(e.key);
+        updateActiveLanes();
+      }
+    };
+
+    document.addEventListener("keydown", handleKeyDown);
+    document.addEventListener("keyup", handleKeyUp);
+
+    spawnIntervalId = setInterval(spawnNote, 700);
+    const updateInterval = setInterval(update, 16);
+    const spawnRateUpdateInterval = setInterval(updateSpawnRate, 5000);
+
+    const timerInterval = setInterval(() => {
+      gameState.secondsLeft--;
+      setTimeLeft(gameState.secondsLeft);
       updateTimerDisplay();
 
-      function spawnNote() {
-        const laneIndex = Math.floor(Math.random() * 4);
-        const isBlue = Math.random() < 0.5;
-        const lane = lanes[laneIndex];
-        if (!lane) return;
-
-        const note = createNote(laneIndex, lane, styles.note, isBlue); 
-        if (note) {
-          notes.push(note);
-        }
+      if (gameState.secondsLeft <= 0) {
+        setFinalScore(gameState.score);
+        setHighestCombo(gameState.maxCombo);
+        setGameOver(true);
       }
+    }, 1000);
 
-      function update() {
-        const secondsElapsed = 60 - gameState.secondsLeft;
-        currentSpeed = calculateNoteSpeed(secondsElapsed);
-        notes = updateNotes(notes, gameState, updateComboDisplay, currentSpeed);
-      }
-
-      function updateSpawnRate() {
-        const secondsElapsed = 60 - gameState.secondsLeft;
-        const newInterval = calculateSpawnInterval(secondsElapsed);
-        
-        if (spawnIntervalId) {
-          clearInterval(spawnIntervalId);
+    return () => {
+      document.removeEventListener("keydown", handleKeyDown);
+      document.removeEventListener("keyup", handleKeyUp);
+      if (spawnIntervalId) clearInterval(spawnIntervalId);
+      clearInterval(updateInterval);
+      clearInterval(spawnRateUpdateInterval);
+      clearInterval(timerInterval);
+      
+      notes.forEach(note => {
+        if (note.el && note.el.parentNode) {
+          note.el.remove();
         }
-        spawnIntervalId = setInterval(spawnNote, newInterval);
-      }
-
-      function checkHit(directionKey: string) {
-        const laneIndex = KEYS[directionKey];
-        if (laneIndex === undefined) return;
-
-        if (currentMode === null) return;
-
-        const isBluePressed = currentMode === 'blue';
-
-        notes = hitNote(
-          laneIndex,
-          isBluePressed,
-          notes,
-          gameState,
-          updateScoreDisplay,
-          updateComboDisplay,
-          styles.noteHit
-        );
-      }
-
-      const handleKeyDown = (e: KeyboardEvent) => {
-        if (e.repeat) return;
-
-        const key = e.key.toLowerCase();
-        keysPressed.add(key);
-
-        if (key === 'x') {
-          currentMode = 'red';
-          setActiveMode('red');
-        } else if (key === 'c') {
-          currentMode = 'blue';
-          setActiveMode('blue');
-        }
-
-        // If a direction key is pressed, add to active lanes and check for hit
-        if (KEYS[e.key] !== undefined) {
-          directionKeysPressed.add(e.key);
-          updateActiveLanes();
-          checkHit(e.key);
-        }
-      };
-
-      const handleKeyUp = (e: KeyboardEvent) => {
-        const key = e.key.toLowerCase();
-        keysPressed.delete(key);
-
-        if (key === 'x' && currentMode === 'red') {
-          currentMode = null;
-          setActiveMode(null);
-        } else if (key === 'c' && currentMode === 'blue') {
-          currentMode = null;
-          setActiveMode(null);
-        }
-
-        // If a direction key is released, remove from active lanes
-        if (KEYS[e.key] !== undefined) {
-          directionKeysPressed.delete(e.key);
-          updateActiveLanes();
-        }
-      };
-
-      document.addEventListener("keydown", handleKeyDown);
-      document.addEventListener("keyup", handleKeyUp);
-
-      spawnIntervalId = setInterval(spawnNote, 700);
-      const updateInterval = setInterval(update, 16);
-      const spawnRateUpdateInterval = setInterval(updateSpawnRate, 5000);
-
-      const timerInterval = setInterval(() => {
-        gameState.secondsLeft--;
-        setTimeLeft(gameState.secondsLeft);
-        updateTimerDisplay();
-
-        if (gameState.secondsLeft <= 0) {
-          setFinalScore(gameState.score);
-          setHighestCombo(gameState.maxCombo);
-          setGameOver(true);
-        }
-      }, 1000);
-
-      return () => {
-        document.removeEventListener("keydown", handleKeyDown);
-        document.removeEventListener("keyup", handleKeyUp);
-        if (spawnIntervalId) clearInterval(spawnIntervalId);
-        clearInterval(updateInterval);
-        clearInterval(spawnRateUpdateInterval);
-        clearInterval(timerInterval);
-        
-        notes.forEach(note => {
-          if (note.el && note.el.parentNode) {
-            note.el.remove();
-          }
-        });
-      };
-    }, [gameOver]);
+      });
+    };
+  }, [gameOver]);
 
 
-    return (
-      <>
-        <div className={styles.body}>
-          <div className={styles.game}>
+  return (
+    <>
+      <div className={styles.body}>
+        <div className={styles.game}>
+          <div
+            className={`${styles.timer} ${timeLeft <= 10 ? styles.timerWarning : styles.timerNormal}`}
+            ref={timerRef}
+          >
+            {formatTime(timeLeft)}
+          </div>
+          <div className={styles.score} ref={scoreRef}>
+            0
+          </div>
+          <div className={styles.combo} ref={comboRef}></div>
+
+          {[0, 1, 2, 3].map((i) => (
             <div
-              className={`${styles.timer} ${timeLeft <= 10 ? styles.timerWarning : styles.timerNormal}`}
-              ref={timerRef}
-            >
-              {formatTime(timeLeft)}
-            </div>
-            <div className={styles.score} ref={scoreRef}>
-              0
-            </div>
-            <div className={styles.combo} ref={comboRef}></div>
+              key={i}
+              className={`${styles.lane} ${
+                activeLanes.has(i) && activeMode === 'red' ? styles.laneRed : 
+                activeLanes.has(i) && activeMode === 'blue' ? styles.laneBlue : ''
+              }`}
+              ref={(el) => {
+                laneRefs.current[i] = el;
+              }}
+            ></div>
+          ))}
 
-            {[0, 1, 2, 3].map((i) => (
-              <div
-                key={i}
-                className={`${styles.lane} ${
-                  activeLanes.has(i) && activeMode === 'red' ? styles.laneRed : 
-                  activeLanes.has(i) && activeMode === 'blue' ? styles.laneBlue : ''
-                }`}
-                ref={(el) => {
-                  laneRefs.current[i] = el;
-                }}
-              ></div>
-            ))}
+          <div className={styles.hitbar}></div>
 
-            <div className={styles.hitbar}></div>
+          {gameOver && (
+            <div className={styles.gameOverOverlay}>
+              <div className={styles.gameOverBox}>
+                <h1 className="text-5xl font-bold mb-4 text-white">Game Over!</h1>
+                <p className="text-3xl mb-4 text-white">
+                  Final Score:{" "}
+                  <span className="text-yellow-400 font-bold">{finalScore}</span>
+                </p>
+                <p className="text-2xl mb-8 text-white">
+                  Highest Combo:{" "}
+                  <span className="text-orange-400 font-bold">
+                    {highestCombo}x
+                  </span>
+                </p>
 
-            {gameOver && (
-              <div className={styles.gameOverOverlay}>
-                <div className={styles.gameOverBox}>
-                  <h1 className="text-5xl font-bold mb-4 text-white">Game Over!</h1>
-                  <p className="text-3xl mb-4 text-white">
-                    Final Score:{" "}
-                    <span className="text-yellow-400 font-bold">{finalScore}</span>
-                  </p>
-                  <p className="text-2xl mb-8 text-white">
-                    Highest Combo:{" "}
-                    <span className="text-orange-400 font-bold">
-                      {highestCombo}x
-                    </span>
-                  </p>
-
-                  <div className="mb-8 p-4 bg-gray-800 rounded-lg">
-                      <h2 className="text-xl font-semibold mb-3 text-white">Submit Score to Leaderboard</h2>
-                      <button
-                          onClick={submitScore}
-                          disabled={scoreSubmitted || finalScore === 0}
-                          className={`w-full px-6 py-3 rounded-xl text-xl font-semibold transition-all text-white 
-                              ${scoreSubmitted || finalScore === 0
-                                  ? 'bg-gray-500 cursor-not-allowed' 
-                                  : 'bg-indigo-600 hover:bg-indigo-700'}`
-                          }
-                      >
-                          {scoreSubmitted ? "Score Submitted!" : "Submit Score"}
-                      </button>
-                  </div>
-
-                  <div className="flex gap-4 justify-center">
+                <div className="mb-8 p-4 bg-gray-800 rounded-lg">
+                    <h2 className="text-xl font-semibold mb-3 text-white">Submit Score to Leaderboard</h2>
                     <button
-                      onClick={restartGame}
-                      className="px-8 py-4 bg-blue-600 hover:bg-blue-700 rounded-xl text-xl font-semibold transition-all text-white"
+                        onClick={submitScore}
+                        disabled={scoreSubmitted || finalScore === 0}
+                        className={`w-full px-6 py-3 rounded-xl text-xl font-semibold transition-all text-white 
+                            ${scoreSubmitted || finalScore === 0
+                                ? 'bg-gray-500 cursor-not-allowed' 
+                                : 'bg-indigo-600 hover:bg-indigo-700'}`
+                        }
                     >
-                      Play Again
+                        {scoreSubmitted ? "Score Submitted!" : "Submit Score"}
                     </button>
+                </div>
 
-                    <Link
-                      href="/leaderboard"
-                      className="px-8 py-4 bg-green-600 hover:bg-green-700 rounded-xl text-xl font-semibold transition-all text-white inline-block"
-                    >
-                      View Leaderboard
-                    </Link>
-                  </div>
+                <div className="flex gap-4 justify-center">
+                  <button
+                    onClick={restartGame}
+                    className="px-8 py-4 bg-blue-600 hover:bg-blue-700 rounded-xl text-xl font-semibold transition-all text-white"
+                  >
+                    Play Again
+                  </button>
+
+                  <Link
+                    href="/leaderboard"
+                    className="px-8 py-4 bg-green-600 hover:bg-green-700 rounded-xl text-xl font-semibold transition-all text-white inline-block"
+                  >
+                    View Leaderboard
+                  </Link>
                 </div>
               </div>
-            )}
-          </div>
+            </div>
+          )}
         </div>
-      </>
-    );
-  }
+      </div>
+    </>
+  );
+}

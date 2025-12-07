@@ -1,28 +1,14 @@
 "use client";
 
 import React, { useState, useEffect } from "react";
-import {
-  db,
-  collection,
-  query,
-  orderBy,
-  limit,
-  getDocs
-} from "@/lib/firebase";
-import { Timestamp } from "firebase/firestore";
-
-// Define the interface for data coming from Firestore
-interface FirestoreScoreData {
-  score: number;
-  highestCombo: number;
-  timestamp: Timestamp;
-}
+import { ref, query, orderByChild, limitToLast, get } from "firebase/database";
+import { database } from "@/lib/firebase";
 
 // Define the interface stored in React state
 interface ScoreEntry {
   score: number;
   highestCombo: number;
-  timestamp: string; // ISO string
+  timestamp: string;
 }
 
 export default function LeaderboardPage() {
@@ -36,34 +22,37 @@ export default function LeaderboardPage() {
 
     async function fetchScores() {
       try {
-        const scoresCollectionRef = collection(db, "highscores");
-
-        const q = query(
-          scoresCollectionRef,
-          orderBy("score", "desc"),
-          orderBy("timestamp", "asc"),
-          limit(100)
+        const scoresRef = ref(database, "highscores");
+        
+        // Query to get top 100 scores
+        const scoresQuery = query(
+          scoresRef,
+          orderByChild("score"),
+          limitToLast(100)
         );
 
-        const querySnapshot = await getDocs(q);
+        const snapshot = await get(scoresQuery);
 
-        const leaderboardData: ScoreEntry[] = [];
-
-        querySnapshot.forEach((doc) => {
-          const data = doc.data() as FirestoreScoreData;
-
-          const timestampString =
-            data.timestamp?.toDate?.().toISOString() ?? new Date().toISOString();
-
-          leaderboardData.push({
-            score: data.score,
-            highestCombo: data.highestCombo,
-            timestamp: timestampString
+        if (snapshot.exists()) {
+          const leaderboardData: ScoreEntry[] = [];
+          
+          snapshot.forEach((childSnapshot) => {
+            const data = childSnapshot.val();
+            leaderboardData.push({
+              score: data.score,
+              highestCombo: data.highestCombo,
+              timestamp: data.timestamp
+            });
           });
-        });
 
-        setScores(leaderboardData);
-        setError(null);
+          // Sort by score descending (limitToLast gets lowest scores, so we reverse)
+          leaderboardData.sort((a, b) => b.score - a.score);
+
+          setScores(leaderboardData);
+          setError(null);
+        } else {
+          setScores([]);
+        }
       } catch (e) {
         console.error("Error fetching scores:", e);
         setError("Failed to load leaderboard data. Check Firebase config/rules.");
