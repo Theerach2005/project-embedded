@@ -1,7 +1,6 @@
 "use client";
 import React, { useEffect, useRef, useState } from "react";
 import Link from "next/link";
-import { database, ref, push, set, onValue, off } from "@/lib/firebase";
 import {
   Note,
   GameState,
@@ -15,15 +14,15 @@ import {
   calculateSpawnInterval,
 } from "@/lib/gamelogic";
 
-import styles from './game.module.css';
+import {
+  InputData,
+  generatePlayerId,
+  sendInputToFirebase,
+  subscribeToInputs,
+  submitScoreToFirebase,
+} from "@/app/services/gameService";
 
-interface InputData {
-  key: string;
-  type: 'keydown' | 'keyup';
-  timestamp: number;
-  mode?: 'red' | 'blue' | null;
-  laneIndex?: number;
-}
+import styles from './game.module.css';
 
 export default function GamePage() {
   const laneRefs = useRef<(HTMLDivElement | null)[]>([]);
@@ -36,18 +35,15 @@ export default function GamePage() {
   const [highestCombo, setHighestCombo] = useState(0);
   const [timeLeft, setTimeLeft] = useState(60);
   
-  // New state for score submission
   const [scoreSubmitted, setScoreSubmitted] = useState(false);
   
-  // State for tracking which mode is active (red/blue) and which lane
   const [activeMode, setActiveMode] = useState<'red' | 'blue' | null>(null);
   const [activeLanes, setActiveLanes] = useState<Set<number>>(new Set());
 
-  // Firebase: Store received inputs for display
   const [receivedInputs, setReceivedInputs] = useState<InputData[]>([]);
   
-  // Generate unique player ID
-  const playerIdRef = useRef<string>(`player_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`);
+  // Generate unique player ID once
+  const playerIdRef = useRef<string>(generatePlayerId());
 
   const restartGame = () => {
     setGameOver(false);
@@ -69,84 +65,47 @@ export default function GamePage() {
     }
   };
 
-  // --- FIREBASE: SEND INPUT TO DATABASE ---
-  const sendInputToFirebase = async (inputData: InputData) => {
-    try {
-      const inputsRef = ref(database, `game_inputs/${playerIdRef.current}`);
-      const newInputRef = push(inputsRef);
-      
-      await set(newInputRef, {
-        ...inputData,
-        playerId: playerIdRef.current,
-        timestamp: Date.now()
-      });
-      
-      console.log("Input sent to Firebase:", inputData);
-    } catch (error) {
-      console.error("Error sending input to Firebase:", error);
-    }
-  };
-
-  // --- FIREBASE: GET INPUTS FROM DATABASE ---
+  // Subscribe to Firebase inputs
   useEffect(() => {
     if (gameOver) return;
 
-    const inputsRef = ref(database, `game_inputs/${playerIdRef.current}`);
-    
-    // Listen for real-time updates
-    const unsubscribe = onValue(inputsRef, (snapshot) => {
-      const data = snapshot.val();
-      if (data) {
-        const inputArray = Object.entries(data).map(([id, value]) => ({
-          id,
-          ...(value as InputData)
-        }));
-        
-        // Sort by timestamp (newest first)
-        inputArray.sort((a: any, b: any) => b.timestamp - a.timestamp);
-        
-        // Keep only last 10 inputs
-        setReceivedInputs(inputArray.slice(0, 10));
-        
-        console.log("Received inputs from Firebase:", inputArray.length);
+    const unsubscribe = subscribeToInputs(
+      playerIdRef.current,
+      (inputs) => {
+        setReceivedInputs(inputs);
       }
-    });
+    );
 
     return () => {
-      off(inputsRef);
+      unsubscribe();
     };
   }, [gameOver]);
 
-  // --- START FIREBASE SCORE SUBMISSION LOGIC (Realtime Database) ---
+  // Handle score submission
   const submitScore = async () => {
-    // Prevent re-submission or submission of zero score
     if (scoreSubmitted || finalScore === 0) return;
 
     if (finalScore <= 0) {
-        alert("Score too low to submit.");
-        return;
+      alert("Score too low to submit.");
+      return;
     }
 
     try {
-        const scoresRef = ref(database, "highscores");
-        const newScoreRef = push(scoresRef);
-        
-        await set(newScoreRef, {
-            score: finalScore,
-            highestCombo: highestCombo,
-            timestamp: new Date().toISOString(),
-            playerId: playerIdRef.current
-        });
+      await submitScoreToFirebase({
+        score: finalScore,
+        highestCombo: highestCombo,
+        timestamp: new Date().toISOString(),
+        playerId: playerIdRef.current
+      });
 
-        setScoreSubmitted(true);
-
-    } catch (e) {
-      console.error("Error submitting score:", e);
+      setScoreSubmitted(true);
+    } catch (error) {
+      console.error("Error submitting score:", error);
       alert("Failed to submit score. Check the console for details.");
     }
   };
-  // --- END FIREBASE SCORE SUBMISSION LOGIC ---
 
+  // Main game logic
   useEffect(() => {
     if (gameOver) return;
 
@@ -163,7 +122,6 @@ export default function GamePage() {
     const directionKeysPressed = new Set<string>();
     
     let currentMode: 'red' | 'blue' | null = null;
-    
     let currentSpeed = 4;
     let spawnIntervalId: NodeJS.Timeout | null = null;
 
@@ -255,8 +213,7 @@ export default function GamePage() {
         currentMode = 'red';
         setActiveMode('red');
         
-        // Send X key press to Firebase
-        sendInputToFirebase({
+        sendInputToFirebase(playerIdRef.current, {
           key: 'x',
           type: 'keydown',
           timestamp: Date.now(),
@@ -266,8 +223,7 @@ export default function GamePage() {
         currentMode = 'blue';
         setActiveMode('blue');
         
-        // Send C key press to Firebase
-        sendInputToFirebase({
+        sendInputToFirebase(playerIdRef.current, {
           key: 'c',
           type: 'keydown',
           timestamp: Date.now(),
@@ -275,14 +231,12 @@ export default function GamePage() {
         });
       }
 
-      // If a direction key is pressed, add to active lanes and check for hit
       if (KEYS[e.key] !== undefined) {
         const laneIndex = KEYS[e.key];
         directionKeysPressed.add(e.key);
         updateActiveLanes();
         
-        // Send arrow key press to Firebase
-        sendInputToFirebase({
+        sendInputToFirebase(playerIdRef.current, {
           key: e.key,
           type: 'keydown',
           timestamp: Date.now(),
@@ -302,8 +256,7 @@ export default function GamePage() {
         currentMode = null;
         setActiveMode(null);
         
-        // Send X key release to Firebase
-        sendInputToFirebase({
+        sendInputToFirebase(playerIdRef.current, {
           key: 'x',
           type: 'keyup',
           timestamp: Date.now(),
@@ -313,8 +266,7 @@ export default function GamePage() {
         currentMode = null;
         setActiveMode(null);
         
-        // Send C key release to Firebase
-        sendInputToFirebase({
+        sendInputToFirebase(playerIdRef.current, {
           key: 'c',
           type: 'keyup',
           timestamp: Date.now(),
@@ -322,13 +274,11 @@ export default function GamePage() {
         });
       }
 
-      // If a direction key is released, remove from active lanes
       if (KEYS[e.key] !== undefined) {
         directionKeysPressed.delete(e.key);
         updateActiveLanes();
         
-        // Send arrow key release to Firebase
-        sendInputToFirebase({
+        sendInputToFirebase(playerIdRef.current, {
           key: e.key,
           type: 'keyup',
           timestamp: Date.now()
@@ -370,7 +320,6 @@ export default function GamePage() {
       });
     };
   }, [gameOver]);
-
 
   return (
     <>
@@ -427,18 +376,18 @@ export default function GamePage() {
                 </p>
 
                 <div className="mb-8 p-4 bg-gray-800 rounded-lg">
-                    <h2 className="text-xl font-semibold mb-3 text-white">Submit Score to Leaderboard</h2>
-                    <button
-                        onClick={submitScore}
-                        disabled={scoreSubmitted || finalScore === 0}
-                        className={`w-full px-6 py-3 rounded-xl text-xl font-semibold transition-all text-white 
-                            ${scoreSubmitted || finalScore === 0
-                                ? 'bg-gray-500 cursor-not-allowed' 
-                                : 'bg-indigo-600 hover:bg-indigo-700'}`
-                        }
-                    >
-                        {scoreSubmitted ? "Score Submitted!" : "Submit Score"}
-                    </button>
+                  <h2 className="text-xl font-semibold mb-3 text-white">Submit Score to Leaderboard</h2>
+                  <button
+                    onClick={submitScore}
+                    disabled={scoreSubmitted || finalScore === 0}
+                    className={`w-full px-6 py-3 rounded-xl text-xl font-semibold transition-all text-white 
+                      ${scoreSubmitted || finalScore === 0
+                        ? 'bg-gray-500 cursor-not-allowed' 
+                        : 'bg-indigo-600 hover:bg-indigo-700'}`
+                    }
+                  >
+                    {scoreSubmitted ? "Score Submitted!" : "Submit Score"}
+                  </button>
                 </div>
 
                 <div className="flex gap-4 justify-center">
