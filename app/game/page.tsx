@@ -1,7 +1,6 @@
 "use client";
 import React, { useEffect, useRef, useState } from "react";
 import Link from "next/link";
-import { database, ref, push, set } from "@/lib/firebase";
 import {
   Note,
   GameState,
@@ -14,6 +13,15 @@ import {
   calculateNoteSpeed,
   calculateSpawnInterval,
 } from "@/lib/gamelogic";
+
+// Import backend service functions
+import {
+  InputData,
+  generatePlayerId,
+  sendInputToFirebase,
+  subscribeToInputs,
+  submitScoreToFirebase,
+} from "@/app/services/gameService";
 
 import styles from './game.module.css';
 
@@ -28,12 +36,15 @@ export default function GamePage() {
   const [highestCombo, setHighestCombo] = useState(0);
   const [timeLeft, setTimeLeft] = useState(60);
   
-  // New state for score submission
   const [scoreSubmitted, setScoreSubmitted] = useState(false);
   
-  // State for tracking which mode is active (red/blue) and which lane
   const [activeMode, setActiveMode] = useState<'red' | 'blue' | null>(null);
   const [activeLanes, setActiveLanes] = useState<Set<number>>(new Set());
+
+  const [receivedInputs, setReceivedInputs] = useState<InputData[]>([]);
+  
+  // Generate unique player ID once
+  const playerIdRef = useRef<string>(generatePlayerId());
 
   const restartGame = () => {
     setGameOver(false);
@@ -55,35 +66,47 @@ export default function GamePage() {
     }
   };
 
-  // --- START FIREBASE SCORE SUBMISSION LOGIC (Realtime Database) ---
+  // Subscribe to Firebase inputs
+  useEffect(() => {
+    if (gameOver) return;
+
+    const unsubscribe = subscribeToInputs(
+      playerIdRef.current,
+      (inputs) => {
+        setReceivedInputs(inputs);
+      }
+    );
+
+    return () => {
+      unsubscribe();
+    };
+  }, [gameOver]);
+
+  // Handle score submission
   const submitScore = async () => {
-    // Prevent re-submission or submission of zero score
     if (scoreSubmitted || finalScore === 0) return;
 
     if (finalScore <= 0) {
-        alert("Score too low to submit.");
-        return;
+      alert("Score too low to submit.");
+      return;
     }
 
     try {
-        const scoresRef = ref(database, "highscores");
-        const newScoreRef = push(scoresRef);
-        
-        await set(newScoreRef, {
-            score: finalScore,
-            highestCombo: highestCombo,
-            timestamp: new Date().toISOString(),
-        });
+      await submitScoreToFirebase({
+        score: finalScore,
+        highestCombo: highestCombo,
+        timestamp: new Date().toISOString(),
+        playerId: playerIdRef.current
+      });
 
-        setScoreSubmitted(true);
-
-    } catch (e) {
-      console.error("Error submitting score:", e);
+      setScoreSubmitted(true);
+    } catch (error) {
+      console.error("Error submitting score:", error);
       alert("Failed to submit score. Check the console for details.");
     }
   };
-  // --- END FIREBASE SCORE SUBMISSION LOGIC ---
 
+  // Main game logic
   useEffect(() => {
     if (gameOver) return;
 
@@ -100,7 +123,6 @@ export default function GamePage() {
     const directionKeysPressed = new Set<string>();
     
     let currentMode: 'red' | 'blue' | null = null;
-    
     let currentSpeed = 4;
     let spawnIntervalId: NodeJS.Timeout | null = null;
 
@@ -191,15 +213,38 @@ export default function GamePage() {
       if (key === 'x') {
         currentMode = 'red';
         setActiveMode('red');
+        
+        sendInputToFirebase(playerIdRef.current, {
+          key: 'x',
+          type: 'keydown',
+          timestamp: Date.now(),
+          mode: 'red'
+        });
       } else if (key === 'c') {
         currentMode = 'blue';
         setActiveMode('blue');
+        
+        sendInputToFirebase(playerIdRef.current, {
+          key: 'c',
+          type: 'keydown',
+          timestamp: Date.now(),
+          mode: 'blue'
+        });
       }
 
-      // If a direction key is pressed, add to active lanes and check for hit
       if (KEYS[e.key] !== undefined) {
+        const laneIndex = KEYS[e.key];
         directionKeysPressed.add(e.key);
         updateActiveLanes();
+        
+        sendInputToFirebase(playerIdRef.current, {
+          key: e.key,
+          type: 'keydown',
+          timestamp: Date.now(),
+          mode: currentMode,
+          laneIndex: laneIndex
+        });
+        
         checkHit(e.key);
       }
     };
@@ -211,15 +256,34 @@ export default function GamePage() {
       if (key === 'x' && currentMode === 'red') {
         currentMode = null;
         setActiveMode(null);
+        
+        sendInputToFirebase(playerIdRef.current, {
+          key: 'x',
+          type: 'keyup',
+          timestamp: Date.now(),
+          mode: null
+        });
       } else if (key === 'c' && currentMode === 'blue') {
         currentMode = null;
         setActiveMode(null);
+        
+        sendInputToFirebase(playerIdRef.current, {
+          key: 'c',
+          type: 'keyup',
+          timestamp: Date.now(),
+          mode: null
+        });
       }
 
-      // If a direction key is released, remove from active lanes
       if (KEYS[e.key] !== undefined) {
         directionKeysPressed.delete(e.key);
         updateActiveLanes();
+        
+        sendInputToFirebase(playerIdRef.current, {
+          key: e.key,
+          type: 'keyup',
+          timestamp: Date.now()
+        });
       }
     };
 
@@ -258,7 +322,6 @@ export default function GamePage() {
     };
   }, [gameOver]);
 
-
   return (
     <>
       <div className={styles.body}>
@@ -273,6 +336,15 @@ export default function GamePage() {
             0
           </div>
           <div className={styles.combo} ref={comboRef}></div>
+
+          {/* Display received inputs (optional - for debugging) */}
+          <div className={styles.inputDisplay}>
+            {receivedInputs.slice(0, 3).map((input: any, index) => (
+              <div key={input.id || index} className={styles.inputItem}>
+                {input.key} {input.type === 'keydown' ? '↓' : '↑'}
+              </div>
+            ))}
+          </div>
 
           {[0, 1, 2, 3].map((i) => (
             <div
@@ -305,18 +377,18 @@ export default function GamePage() {
                 </p>
 
                 <div className="mb-8 p-4 bg-gray-800 rounded-lg">
-                    <h2 className="text-xl font-semibold mb-3 text-white">Submit Score to Leaderboard</h2>
-                    <button
-                        onClick={submitScore}
-                        disabled={scoreSubmitted || finalScore === 0}
-                        className={`w-full px-6 py-3 rounded-xl text-xl font-semibold transition-all text-white 
-                            ${scoreSubmitted || finalScore === 0
-                                ? 'bg-gray-500 cursor-not-allowed' 
-                                : 'bg-indigo-600 hover:bg-indigo-700'}`
-                        }
-                    >
-                        {scoreSubmitted ? "Score Submitted!" : "Submit Score"}
-                    </button>
+                  <h2 className="text-xl font-semibold mb-3 text-white">Submit Score to Leaderboard</h2>
+                  <button
+                    onClick={submitScore}
+                    disabled={scoreSubmitted || finalScore === 0}
+                    className={`w-full px-6 py-3 rounded-xl text-xl font-semibold transition-all text-white 
+                      ${scoreSubmitted || finalScore === 0
+                        ? 'bg-gray-500 cursor-not-allowed' 
+                        : 'bg-indigo-600 hover:bg-indigo-700'}`
+                    }
+                  >
+                    {scoreSubmitted ? "Score Submitted!" : "Submit Score"}
+                  </button>
                 </div>
 
                 <div className="flex gap-4 justify-center">

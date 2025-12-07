@@ -171,3 +171,22 @@
   text-align: center;
   box-shadow: 0 0 50px rgba(255, 255, 255, 0.3);
 }
+
+.inputDisplay {
+  position: absolute;
+  top: 110px;
+  left: 20px;
+  z-index: 10;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.inputItem {
+  background: rgba(0, 0, 0, 0.7);
+  padding: 4px 8px;
+  border-radius: 4px;
+  font-size: 14px;
+  color: #00ff00;
+  font-family: monospace;
+}
