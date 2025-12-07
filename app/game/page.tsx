@@ -1,7 +1,7 @@
 "use client";
 import React, { useEffect, useRef, useState } from "react";
 import Link from "next/link";
-import { database, ref, push, set } from "@/lib/firebase";
+import { database, ref, push, set, onValue, off } from "@/lib/firebase";
 import {
   Note,
   GameState,
@@ -16,6 +16,14 @@ import {
 } from "@/lib/gamelogic";
 
 import styles from './game.module.css';
+
+interface InputData {
+  key: string;
+  type: 'keydown' | 'keyup';
+  timestamp: number;
+  mode?: 'red' | 'blue' | null;
+  laneIndex?: number;
+}
 
 export default function GamePage() {
   const laneRefs = useRef<(HTMLDivElement | null)[]>([]);
@@ -34,6 +42,12 @@ export default function GamePage() {
   // State for tracking which mode is active (red/blue) and which lane
   const [activeMode, setActiveMode] = useState<'red' | 'blue' | null>(null);
   const [activeLanes, setActiveLanes] = useState<Set<number>>(new Set());
+
+  // Firebase: Store received inputs for display
+  const [receivedInputs, setReceivedInputs] = useState<InputData[]>([]);
+  
+  // Generate unique player ID
+  const playerIdRef = useRef<string>(`player_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`);
 
   const restartGame = () => {
     setGameOver(false);
@@ -55,6 +69,54 @@ export default function GamePage() {
     }
   };
 
+  // --- FIREBASE: SEND INPUT TO DATABASE ---
+  const sendInputToFirebase = async (inputData: InputData) => {
+    try {
+      const inputsRef = ref(database, `game_inputs/${playerIdRef.current}`);
+      const newInputRef = push(inputsRef);
+      
+      await set(newInputRef, {
+        ...inputData,
+        playerId: playerIdRef.current,
+        timestamp: Date.now()
+      });
+      
+      console.log("Input sent to Firebase:", inputData);
+    } catch (error) {
+      console.error("Error sending input to Firebase:", error);
+    }
+  };
+
+  // --- FIREBASE: GET INPUTS FROM DATABASE ---
+  useEffect(() => {
+    if (gameOver) return;
+
+    const inputsRef = ref(database, `game_inputs/${playerIdRef.current}`);
+    
+    // Listen for real-time updates
+    const unsubscribe = onValue(inputsRef, (snapshot) => {
+      const data = snapshot.val();
+      if (data) {
+        const inputArray = Object.entries(data).map(([id, value]) => ({
+          id,
+          ...(value as InputData)
+        }));
+        
+        // Sort by timestamp (newest first)
+        inputArray.sort((a: any, b: any) => b.timestamp - a.timestamp);
+        
+        // Keep only last 10 inputs
+        setReceivedInputs(inputArray.slice(0, 10));
+        
+        console.log("Received inputs from Firebase:", inputArray.length);
+      }
+    });
+
+    return () => {
+      off(inputsRef);
+    };
+  }, [gameOver]);
+
   // --- START FIREBASE SCORE SUBMISSION LOGIC (Realtime Database) ---
   const submitScore = async () => {
     // Prevent re-submission or submission of zero score
@@ -73,6 +135,7 @@ export default function GamePage() {
             score: finalScore,
             highestCombo: highestCombo,
             timestamp: new Date().toISOString(),
+            playerId: playerIdRef.current
         });
 
         setScoreSubmitted(true);
@@ -191,15 +254,42 @@ export default function GamePage() {
       if (key === 'x') {
         currentMode = 'red';
         setActiveMode('red');
+        
+        // Send X key press to Firebase
+        sendInputToFirebase({
+          key: 'x',
+          type: 'keydown',
+          timestamp: Date.now(),
+          mode: 'red'
+        });
       } else if (key === 'c') {
         currentMode = 'blue';
         setActiveMode('blue');
+        
+        // Send C key press to Firebase
+        sendInputToFirebase({
+          key: 'c',
+          type: 'keydown',
+          timestamp: Date.now(),
+          mode: 'blue'
+        });
       }
 
       // If a direction key is pressed, add to active lanes and check for hit
       if (KEYS[e.key] !== undefined) {
+        const laneIndex = KEYS[e.key];
         directionKeysPressed.add(e.key);
         updateActiveLanes();
+        
+        // Send arrow key press to Firebase
+        sendInputToFirebase({
+          key: e.key,
+          type: 'keydown',
+          timestamp: Date.now(),
+          mode: currentMode,
+          laneIndex: laneIndex
+        });
+        
         checkHit(e.key);
       }
     };
@@ -211,15 +301,38 @@ export default function GamePage() {
       if (key === 'x' && currentMode === 'red') {
         currentMode = null;
         setActiveMode(null);
+        
+        // Send X key release to Firebase
+        sendInputToFirebase({
+          key: 'x',
+          type: 'keyup',
+          timestamp: Date.now(),
+          mode: null
+        });
       } else if (key === 'c' && currentMode === 'blue') {
         currentMode = null;
         setActiveMode(null);
+        
+        // Send C key release to Firebase
+        sendInputToFirebase({
+          key: 'c',
+          type: 'keyup',
+          timestamp: Date.now(),
+          mode: null
+        });
       }
 
       // If a direction key is released, remove from active lanes
       if (KEYS[e.key] !== undefined) {
         directionKeysPressed.delete(e.key);
         updateActiveLanes();
+        
+        // Send arrow key release to Firebase
+        sendInputToFirebase({
+          key: e.key,
+          type: 'keyup',
+          timestamp: Date.now()
+        });
       }
     };
 
@@ -273,6 +386,15 @@ export default function GamePage() {
             0
           </div>
           <div className={styles.combo} ref={comboRef}></div>
+
+          {/* Display received inputs (optional - for debugging) */}
+          <div className={styles.inputDisplay}>
+            {receivedInputs.slice(0, 3).map((input: any, index) => (
+              <div key={input.id || index} className={styles.inputItem}>
+                {input.key} {input.type === 'keydown' ? '↓' : '↑'}
+              </div>
+            ))}
+          </div>
 
           {[0, 1, 2, 3].map((i) => (
             <div
