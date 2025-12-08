@@ -1,0 +1,21 @@
+# Ignore IDE and project configuration files
+.project
+.cproject
+.settings/
+
+# Ignore build directories and files
+Debug/
+
+# Ignore IDE-specific files
+*.launch
+
+# Ignore STM32CubeMX output that doesn't need to be tracked
+*.ioc
+
+# Other build artifacts (e.g., object files, executables) if any
+*.elf
+*.bin
+*.hex
+*.map
+*.o
+*.d
