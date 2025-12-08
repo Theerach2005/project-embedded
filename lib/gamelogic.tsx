@@ -2,7 +2,7 @@ export interface Note {
   el: HTMLDivElement;
   y: number;
   lane: number;
-  isBlue: boolean; // Track if note is blue or red
+  isBlue: boolean;
 }
 
 export interface GameState {
@@ -12,7 +12,13 @@ export interface GameState {
   secondsLeft: number;
 }
 
-// Direction keys only (0-3 for the 4 directions)
+export interface GameRefs {
+  scoreRef: React.RefObject<HTMLDivElement>;
+  comboRef: React.RefObject<HTMLDivElement>;
+  timerRef: React.RefObject<HTMLDivElement>;
+}
+
+// Constants
 export const KEYS: { [key: string]: number } = {
   ArrowLeft: 0,
   ArrowDown: 1,
@@ -28,6 +34,42 @@ export const KEYS: { [key: string]: number } = {
   D: 3,
 };
 
+// Input constants
+export const NONE = 0x00;
+export const UP = 0x01;
+export const DOWN = 0x02;
+export const LEFT = 0x03;
+export const RIGHT = 0x04;
+export const RED_BUTTON = 0x00;
+export const BLUE_BUTTON = 0x10;
+export const FLAG_ZERO = 0x00;
+export const FLAG_ONE = 0x80;
+
+// Direction to lane mapping
+export const DIRECTION_TO_LANE: { [key: number]: number } = {
+  [LEFT]: 0,
+  [DOWN]: 1,
+  [UP]: 2,
+  [RIGHT]: 3,
+};
+
+// Display update functions
+export function updateComboDisplay(gameState: GameState, comboRef: React.RefObject<HTMLDivElement>) {
+  if (!comboRef.current) return;
+  comboRef.current.textContent = getComboText(gameState.combo);
+}
+
+export function updateTimerDisplay(gameState: GameState, timerRef: React.RefObject<HTMLDivElement>) {
+  if (!timerRef.current) return;
+  timerRef.current.textContent = formatTime(gameState.secondsLeft);
+}
+
+export function updateScoreDisplay(score: number, scoreRef: React.RefObject<HTMLDivElement>) {
+  if (!scoreRef.current) return;
+  scoreRef.current.textContent = score.toString();
+}
+
+// Note creation
 export function createNote(
   laneIndex: number,
   lane: HTMLDivElement,
@@ -45,6 +87,27 @@ export function createNote(
   return { el: note, y: -50, lane: laneIndex, isBlue };
 }
 
+// Spawn note function
+export function spawnNote(
+  lanes: (HTMLDivElement | null)[],
+  notes: Note[],
+  noteClassName: string
+): Note[] {
+  const laneIndex = Math.floor(Math.random() * 4);
+  const isBlue = Math.random() < 0.5;
+  const lane = lanes[laneIndex];
+  
+  if (!lane) return notes;
+
+  const note = createNote(laneIndex, lane, noteClassName, isBlue);
+  if (note) {
+    return [...notes, note];
+  }
+  
+  return notes;
+}
+
+// Update notes
 export function updateNotes(
   notes: Note[],
   gameState: GameState,
@@ -74,7 +137,7 @@ export function updateNotes(
 export function calculateNoteSpeed(secondsElapsed: number): number {
   const baseSpeed = 4;
   const maxSpeed = 8;
-  const speedIncreaseRate = 0.08; // Speed increases by 0.08 per second
+  const speedIncreaseRate = 0.08;
   
   const calculatedSpeed = baseSpeed + (secondsElapsed * speedIncreaseRate);
   return Math.min(calculatedSpeed, maxSpeed);
@@ -82,14 +145,15 @@ export function calculateNoteSpeed(secondsElapsed: number): number {
 
 // Calculate spawn interval based on elapsed time
 export function calculateSpawnInterval(secondsElapsed: number): number {
-  const baseInterval = 700; // Start at 700ms
-  const minInterval = 350; // Fastest spawn rate (350ms)
-  const decreaseRate = 7; // Decrease by 7ms per second
+  const baseInterval = 700;
+  const minInterval = 350;
+  const decreaseRate = 7;
   
   const calculatedInterval = baseInterval - (secondsElapsed * decreaseRate);
   return Math.max(calculatedInterval, minInterval);
 }
 
+// Hit note
 export function hitNote(
   laneIndex: number,
   isBluePressed: boolean,
@@ -102,7 +166,6 @@ export function hitNote(
   for (let i = 0; i < notes.length; i++) {
     const note = notes[i];
     
-    // Check if the note matches both direction AND color modifier
     if (note.lane === laneIndex && note.isBlue === isBluePressed && note.y > 700 && note.y < 800) {
       note.el.classList.add(noteHitClassName);
       
@@ -127,12 +190,49 @@ export function hitNote(
   return notes;
 }
 
+// Input parsing
+export function parseInput(value: number): {
+  direction: number;
+  color: number;
+  flag: number;
+  laneIndex: number | undefined;
+  isBluePressed: boolean;
+} {
+  const direction = value & 0x0F;
+  const color = value & 0x10;
+  const flag = value & 0x80;
+  const laneIndex = DIRECTION_TO_LANE[direction];
+  const isBluePressed = color === BLUE_BUTTON;
+
+  return { direction, color, flag, laneIndex, isBluePressed };
+}
+
+// Get active mode from input
+export function getActiveMode(value: number): 'red' | 'blue' {
+  const color = value & 0x10;
+  return color === RED_BUTTON ? 'red' : 'blue';
+}
+
+// Get active lanes from input
+export function getActiveLanes(value: number): Set<number> {
+  const direction = value & 0x0F;
+  const laneIndex = DIRECTION_TO_LANE[direction];
+
+  if (laneIndex !== undefined && direction !== NONE) {
+    return new Set([laneIndex]);
+  }
+
+  return new Set();
+}
+
+// Format time
 export function formatTime(seconds: number): string {
   const minutes = Math.floor(seconds / 60);
   const secs = seconds % 60;
   return `${minutes}:${secs.toString().padStart(2, "0")}`;
 }
 
+// Get combo text
 export function getComboText(combo: number): string {
   return combo > 0 ? `${combo}x COMBO` : "";
 }
