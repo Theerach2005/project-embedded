@@ -135,9 +135,9 @@ export function updateNotes(
 
 // Calculate note speed based on elapsed time
 export function calculateNoteSpeed(secondsElapsed: number): number {
-  const baseSpeed = 4;
-  const maxSpeed = 8;
-  const speedIncreaseRate = 0.08;
+  const baseSpeed = 3;
+  const maxSpeed = 6;
+  const speedIncreaseRate = 0.05;
   
   const calculatedSpeed = baseSpeed + (secondsElapsed * speedIncreaseRate);
   return Math.min(calculatedSpeed, maxSpeed);
