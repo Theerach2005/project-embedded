@@ -1,11 +1,16 @@
 import { database, ref, push, set, onValue, off } from "@/lib/firebase";
+import { unsubscribe } from "node:diagnostics_channel";
+
+// export interface InputData {
+//   key: string;
+//   type: 'keydown' | 'keyup';
+//   timestamp: number;
+//   mode?: 'red' | 'blue' | null;
+//   laneIndex?: number;
+// }
 
 export interface InputData {
-  key: string;
-  type: 'keydown' | 'keyup';
-  timestamp: number;
-  mode?: 'red' | 'blue' | null;
-  laneIndex?: number;
+  value: number;
 }
 
 export interface ScoreData {
@@ -32,13 +37,13 @@ export async function sendInputToFirebase(
   try {
     const inputsRef = ref(database, `game_inputs/${playerId}`);
     const newInputRef = push(inputsRef);
-    
+
     await set(newInputRef, {
       ...inputData,
       playerId: playerId,
       timestamp: Date.now()
     });
-    
+
     console.log("Input sent to Firebase:", inputData);
   } catch (error) {
     console.error("Error sending input to Firebase:", error);
@@ -55,7 +60,7 @@ export function subscribeToInputs(
   callback: (inputs: any[]) => void
 ): () => void {
   const inputsRef = ref(database, `game_inputs/${playerId}`);
-  
+
   const unsubscribe = onValue(inputsRef, (snapshot) => {
     const data = snapshot.val();
     if (data) {
@@ -63,19 +68,33 @@ export function subscribeToInputs(
         id,
         ...(value as InputData)
       }));
-      
+
       // Sort by timestamp (newest first)
       inputArray.sort((a: any, b: any) => b.timestamp - a.timestamp);
-      
+
       // Keep only last 10 inputs
       callback(inputArray.slice(0, 10));
-      
+
       console.log("Received inputs from Firebase:", inputArray.length);
     }
   });
 
   return () => {
     off(inputsRef);
+  };
+}
+
+export function subscribeToInput(
+  setInput: (input: InputData | null) => void
+): () => void {
+  const lastByteRef = ref(database, "/stm32/lastByte");
+  const unsubscribe = onValue(lastByteRef, (snapshot) => {
+    const val = snapshot.val() as InputData | null;
+    setInput(val);
+    console.log("New data from Firebase:", val);
+  });
+  return () => {
+    unsubscribe();
   };
 }
 
@@ -92,7 +111,7 @@ export async function submitScoreToFirebase(
   try {
     const scoresRef = ref(database, "highscores");
     const newScoreRef = push(scoresRef);
-    
+
     await set(newScoreRef, {
       score: scoreData.score,
       highestCombo: scoreData.highestCombo,

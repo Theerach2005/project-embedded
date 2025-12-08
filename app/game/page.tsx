@@ -1,5 +1,5 @@
 "use client";
-import React, { useEffect, useRef, useState } from "react";
+import React, { use, useEffect, useRef, useState, useMemo } from "react";
 import Link from "next/link";
 import {
   Note,
@@ -20,10 +20,29 @@ import {
   generatePlayerId,
   sendInputToFirebase,
   subscribeToInputs,
+  subscribeToInput,
   submitScoreToFirebase,
 } from "@/app/services/gameService";
 
 import styles from './game.module.css';
+
+const NONE = 0x00;
+const UP = 0x01;
+const DOWN = 0x02;
+const LEFT = 0x03;
+const RIGHT = 0x04;
+// const UP_LEFT = 0x05;
+// const UP_RIGHT = 0x06;
+// const DOWN_LEFT = 0x07;
+// const DOWN_RIGHT = 0x08;
+
+const RED_BUTTON = 0x00;
+const BLUE_BUTTON = 0x10;
+
+const FLAG_ZERO = 0x00;
+const FLAG_ONE = 0x80;
+
+
 
 export default function GamePage() {
   const laneRefs = useRef<(HTMLDivElement | null)[]>([]);
@@ -35,16 +54,27 @@ export default function GamePage() {
   const [finalScore, setFinalScore] = useState(0);
   const [highestCombo, setHighestCombo] = useState(0);
   const [timeLeft, setTimeLeft] = useState(60);
-  
-  const [scoreSubmitted, setScoreSubmitted] = useState(false);
-  
-  const [activeMode, setActiveMode] = useState<'red' | 'blue' | null>(null);
-  const [activeLanes, setActiveLanes] = useState<Set<number>>(new Set());
 
-  const [receivedInputs, setReceivedInputs] = useState<InputData[]>([]);
-  
+  const [scoreSubmitted, setScoreSubmitted] = useState(false);
+
+  const [activeMode, setActiveMode] = useState<'red' | 'blue' | null>(null);
+
+  // const [receivedInputs, setReceivedInputs] = useState<InputData[]>([]);
+  const [input, setInput] = useState<InputData | null>(null);
+
+  // const [message,setMessage] = useState <string> ("");
+
   // Generate unique player ID once
   const playerIdRef = useRef<string>(generatePlayerId());
+
+  // Refs to hold game state and notes accessible across useEffects
+  const notesRef = useRef<Note[]>([]);
+  const gameStateRef = useRef<GameState>({
+    score: 0,
+    combo: 0,
+    maxCombo: 0,
+    secondsLeft: 60,
+  });
 
   const restartGame = () => {
     setGameOver(false);
@@ -52,8 +82,7 @@ export default function GamePage() {
     setHighestCombo(0);
     setTimeLeft(60);
     setScoreSubmitted(false);
-    setActiveMode(null);
-    setActiveLanes(new Set());
+    // setActiveMode(null);
 
     if (scoreRef.current) {
       scoreRef.current.textContent = "0";
@@ -69,11 +98,9 @@ export default function GamePage() {
   // Subscribe to Firebase inputs
   useEffect(() => {
     if (gameOver) return;
-
-    const unsubscribe = subscribeToInputs(
-      playerIdRef.current,
-      (inputs) => {
-        setReceivedInputs(inputs);
+    const unsubscribe = subscribeToInput(
+      (input:InputData|null) => {
+        setInput(input);
       }
     );
 
@@ -81,6 +108,56 @@ export default function GamePage() {
       unsubscribe();
     };
   }, [gameOver]);
+
+  // Set activeMode based on input and clear after 300ms
+  useEffect(() => {
+    if (gameOver) {
+      setActiveMode(null);
+      return;
+    }
+
+    if (!input) {
+      setActiveMode(null);
+      return;
+    }
+
+    const color = input.value & 0x10;
+    const mode = color === RED_BUTTON ? 'red' : 'blue';
+    setActiveMode(mode);
+
+    const timeoutId = setTimeout(() => {
+      setActiveMode(null);
+    }, 300);
+
+    return () => {
+      clearTimeout(timeoutId);
+    };
+  }, [gameOver, input]);
+
+  const activeLanes: Set<number> = useMemo(() => {
+    if (gameOver || !input) return new Set();
+
+    const value = input.value;
+    const direction = value & 0x0F;
+
+    // Map direction to lane index
+    const directionToLane: { [key: number]: number } = {
+      [LEFT]: 0,
+      [DOWN]: 1,
+      [UP]: 2,
+      [RIGHT]: 3,
+    };
+
+    const laneIndex = directionToLane[direction];
+
+    if (laneIndex !== undefined && direction !== NONE) {
+      return new Set([laneIndex]);
+    }
+
+    return new Set();
+  }, [gameOver, input]);
+
+
 
   // Handle score submission
   const submitScore = async () => {
@@ -111,29 +188,25 @@ export default function GamePage() {
     if (gameOver) return;
 
     const lanes = laneRefs.current;
-    let notes: Note[] = [];
-    const gameState: GameState = {
+    notesRef.current = [];
+    gameStateRef.current = {
       score: 0,
       combo: 0,
       maxCombo: 0,
       secondsLeft: 60,
     };
 
-    const keysPressed = new Set<string>();
-    const directionKeysPressed = new Set<string>();
-    
-    let currentMode: 'red' | 'blue' | null = null;
     let currentSpeed = 4;
     let spawnIntervalId: NodeJS.Timeout | null = null;
 
     function updateComboDisplay() {
       if (!comboRef.current) return;
-      comboRef.current.textContent = getComboText(gameState.combo);
+      comboRef.current.textContent = getComboText(gameStateRef.current.combo);
     }
 
     function updateTimerDisplay() {
       if (!timerRef.current) return;
-      timerRef.current.textContent = formatTime(gameState.secondsLeft);
+      timerRef.current.textContent = formatTime(gameStateRef.current.secondsLeft);
     }
 
     function updateScoreDisplay(score: number) {
@@ -142,18 +215,7 @@ export default function GamePage() {
       }
     }
 
-    function updateActiveLanes() {
-      const newActiveLanes = new Set<number>();
-      directionKeysPressed.forEach(key => {
-        const laneIndex = KEYS[key];
-        if (laneIndex !== undefined) {
-          newActiveLanes.add(laneIndex);
-        }
-      });
-      setActiveLanes(newActiveLanes);
-    }
-
-    updateScoreDisplay(gameState.score);
+    updateScoreDisplay(gameStateRef.current.score);
     updateComboDisplay();
     updateTimerDisplay();
 
@@ -163,164 +225,108 @@ export default function GamePage() {
       const lane = lanes[laneIndex];
       if (!lane) return;
 
-      const note = createNote(laneIndex, lane, styles.note, isBlue); 
+      const note = createNote(laneIndex, lane, styles.note, isBlue);
       if (note) {
-        notes.push(note);
+        notesRef.current.push(note);
       }
     }
 
     function update() {
-      const secondsElapsed = 60 - gameState.secondsLeft;
+      const secondsElapsed = 60 - gameStateRef.current.secondsLeft;
       currentSpeed = calculateNoteSpeed(secondsElapsed);
-      notes = updateNotes(notes, gameState, updateComboDisplay, currentSpeed);
+      notesRef.current = updateNotes(notesRef.current, gameStateRef.current, updateComboDisplay, currentSpeed);
     }
 
     function updateSpawnRate() {
-      const secondsElapsed = 60 - gameState.secondsLeft;
+      const secondsElapsed = 60 - gameStateRef.current.secondsLeft;
       const newInterval = calculateSpawnInterval(secondsElapsed);
-      
+
       if (spawnIntervalId) {
         clearInterval(spawnIntervalId);
       }
       spawnIntervalId = setInterval(spawnNote, newInterval);
     }
 
-    function checkHit(directionKey: string) {
-      const laneIndex = KEYS[directionKey];
-      if (laneIndex === undefined) return;
-
-      if (currentMode === null) return;
-
-      const isBluePressed = currentMode === 'blue';
-
-      notes = hitNote(
-        laneIndex,
-        isBluePressed,
-        notes,
-        gameState,
-        updateScoreDisplay,
-        updateComboDisplay,
-        styles.noteHit
-      );
-    }
-
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.repeat) return;
-
-      const key = e.key.toLowerCase();
-      keysPressed.add(key);
-
-      if (key === 'x') {
-        currentMode = 'red';
-        setActiveMode('red');
-        
-        sendInputToFirebase(playerIdRef.current, {
-          key: 'x',
-          type: 'keydown',
-          timestamp: Date.now(),
-          mode: 'red'
-        });
-      } else if (key === 'c') {
-        currentMode = 'blue';
-        setActiveMode('blue');
-        
-        sendInputToFirebase(playerIdRef.current, {
-          key: 'c',
-          type: 'keydown',
-          timestamp: Date.now(),
-          mode: 'blue'
-        });
-      }
-
-      if (KEYS[e.key] !== undefined) {
-        const laneIndex = KEYS[e.key];
-        directionKeysPressed.add(e.key);
-        updateActiveLanes();
-        
-        sendInputToFirebase(playerIdRef.current, {
-          key: e.key,
-          type: 'keydown',
-          timestamp: Date.now(),
-          mode: currentMode,
-          laneIndex: laneIndex
-        });
-        
-        checkHit(e.key);
-      }
-    };
-
-    const handleKeyUp = (e: KeyboardEvent) => {
-      const key = e.key.toLowerCase();
-      keysPressed.delete(key);
-
-      if (key === 'x' && currentMode === 'red') {
-        currentMode = null;
-        setActiveMode(null);
-        
-        sendInputToFirebase(playerIdRef.current, {
-          key: 'x',
-          type: 'keyup',
-          timestamp: Date.now(),
-          mode: null
-        });
-      } else if (key === 'c' && currentMode === 'blue') {
-        currentMode = null;
-        setActiveMode(null);
-        
-        sendInputToFirebase(playerIdRef.current, {
-          key: 'c',
-          type: 'keyup',
-          timestamp: Date.now(),
-          mode: null
-        });
-      }
-
-      if (KEYS[e.key] !== undefined) {
-        directionKeysPressed.delete(e.key);
-        updateActiveLanes();
-        
-        sendInputToFirebase(playerIdRef.current, {
-          key: e.key,
-          type: 'keyup',
-          timestamp: Date.now()
-        });
-      }
-    };
-
-    document.addEventListener("keydown", handleKeyDown);
-    document.addEventListener("keyup", handleKeyUp);
-
     spawnIntervalId = setInterval(spawnNote, 700);
     const updateInterval = setInterval(update, 16);
     const spawnRateUpdateInterval = setInterval(updateSpawnRate, 5000);
 
     const timerInterval = setInterval(() => {
-      gameState.secondsLeft--;
-      setTimeLeft(gameState.secondsLeft);
+      gameStateRef.current.secondsLeft--;
+      setTimeLeft(gameStateRef.current.secondsLeft);
       updateTimerDisplay();
 
-      if (gameState.secondsLeft <= 0) {
-        setFinalScore(gameState.score);
-        setHighestCombo(gameState.maxCombo);
+      if (gameStateRef.current.secondsLeft <= 0) {
+        setFinalScore(gameStateRef.current.score);
+        setHighestCombo(gameStateRef.current.maxCombo);
         setGameOver(true);
       }
     }, 1000);
 
     return () => {
-      document.removeEventListener("keydown", handleKeyDown);
-      document.removeEventListener("keyup", handleKeyUp);
       if (spawnIntervalId) clearInterval(spawnIntervalId);
       clearInterval(updateInterval);
       clearInterval(spawnRateUpdateInterval);
       clearInterval(timerInterval);
-      
-      notes.forEach(note => {
+
+      notesRef.current.forEach(note => {
         if (note.el && note.el.parentNode) {
           note.el.remove();
         }
       });
     };
   }, [gameOver]);
+
+  // Capture input and trigger hitNote
+  useEffect(() => {
+    if (!input || gameOver) return;
+
+    const value = input.value;
+    const direction = value & 0x0F;
+    const color = value & 0x10;
+    const flag = value & 0x80;
+
+    // Map direction to lane index
+    const directionToLane: { [key: number]: number } = {
+      [LEFT]: 0,   // 0x01 -> lane 0
+      [DOWN]: 1,   // 0x02 -> lane 1
+      [UP]: 2,     // 0x03 -> lane 2
+      [RIGHT]: 3,  // 0x04 -> lane 3
+    };
+
+    const laneIndex = directionToLane[direction];
+
+    // Only process if we have a valid direction and flag is set (button press)
+    if (laneIndex !== undefined && direction !== NONE ) {
+      const isBluePressed = color === BLUE_BUTTON;
+
+      // Update score and combo display functions
+      function updateScoreDisplay(score: number) {
+        if (scoreRef.current) {
+          scoreRef.current.textContent = score.toString();
+        }
+      }
+
+      function updateComboDisplay() {
+        if (comboRef.current) {
+          comboRef.current.textContent = getComboText(gameStateRef.current.combo);
+        }
+      }
+
+      // Call hitNote with the current game state
+      notesRef.current = hitNote(
+        laneIndex,
+        isBluePressed,
+        notesRef.current,
+        gameStateRef.current,
+        updateScoreDisplay,
+        updateComboDisplay,
+        styles.noteHit
+      );
+    }
+  }, [input, gameOver]);
+
+
 
   return (
     <>
@@ -338,19 +344,22 @@ export default function GamePage() {
           <div className={styles.combo} ref={comboRef}></div>
 
           {/* Display received inputs (optional - for debugging) */}
-          <div className={styles.inputDisplay}>
+          {/*<div className={styles.inputDisplay}>
             {receivedInputs.slice(0, 3).map((input: any, index) => (
               <div key={input.id || index} className={styles.inputItem}>
                 {input.key} {input.type === 'keydown' ? '↓' : '↑'}
               </div>
             ))}
+          </div>*/}
+          <div className={styles.inputDisplay}>
+            {input && input.value}
           </div>
 
           {[0, 1, 2, 3].map((i) => (
             <div
               key={i}
               className={`${styles.lane} ${
-                activeLanes.has(i) && activeMode === 'red' ? styles.laneRed : 
+                activeLanes.has(i) && activeMode === 'red' ? styles.laneRed :
                 activeLanes.has(i) && activeMode === 'blue' ? styles.laneBlue : ''
               }`}
               ref={(el) => {
@@ -381,9 +390,9 @@ export default function GamePage() {
                   <button
                     onClick={submitScore}
                     disabled={scoreSubmitted || finalScore === 0}
-                    className={`w-full px-6 py-3 rounded-xl text-xl font-semibold transition-all text-white 
+                    className={`w-full px-6 py-3 rounded-xl text-xl font-semibold transition-all text-white
                       ${scoreSubmitted || finalScore === 0
-                        ? 'bg-gray-500 cursor-not-allowed' 
+                        ? 'bg-gray-500 cursor-not-allowed'
                         : 'bg-indigo-600 hover:bg-indigo-700'}`
                     }
                   >
