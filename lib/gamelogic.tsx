@@ -166,7 +166,7 @@ export function hitNote(
   for (let i = 0; i < notes.length; i++) {
     const note = notes[i];
     
-    if (note.lane === laneIndex && note.isBlue === isBluePressed && note.y > 700 && note.y < 800) {
+    if (note.lane === laneIndex && note.isBlue === isBluePressed && note.y > 550 && note.y < 800) {
       note.el.classList.add(noteHitClassName);
       
       gameState.score += 100;
